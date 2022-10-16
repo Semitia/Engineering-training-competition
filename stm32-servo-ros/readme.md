@@ -1,0 +1,1 @@
+use the USART1 of STM32 to transfer information with ros or other unit.
