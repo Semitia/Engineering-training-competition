@@ -10,7 +10,9 @@
 
 /**
  * @brief 
- * 
+ * @param m 行数
+ * @param n 列数
+ * @param matrix 矩阵
  */
 typedef struct __Matrix_t{
     int m;
@@ -20,7 +22,7 @@ typedef struct __Matrix_t{
 
 /**
  * @brief n个节点，n+1个坐标系，转换矩阵T1~Tn
- * 
+ * @param T 转换矩阵，Ti将i系某点坐标转换成其在i-1系坐标
  */
 typedef struct __robotic_arm_t{
     int n;//number of nodes
@@ -343,12 +345,17 @@ typedef struct __bird_population_t{
 
 }bird_population_t;
 
+/**
+ * @brief 粒子随机初始化
+ * 在这里面分配空间一定程度上也可以防止空间浪费
+ * @param pop 
+ * @return bird_t* 
+ */
 bird_t *bird_init(bird_population_t *pop)
 {
     int i;
     bird_t *bird;
     bird = (bird_t*)malloc(sizeof(bird_t));
-    srand((unsigned)time( NULL ) ); 
     for(i=0; i<pop->D; i++)
     {
         bird->X[i] = PI*(rand()%180)/180;
@@ -359,6 +366,28 @@ bird_t *bird_init(bird_population_t *pop)
     return bird;
 }
 
+void bird_init_hand(bird_population_t *pop)
+{
+    for(int i=0;i < pop->N; i++) 
+    {
+        pop->bird[i] = (bird_t*)malloc(sizeof(bird_t));
+        pop->bird[i]->opt_A = BADDEST;
+    }
+    pop->bird[0]->X[0] = 1, pop->bird[0]->X[1] = 2, pop->bird[0]->X[2] = 3;
+
+    return;
+}
+
+/**
+ * @brief 粒子群初始化
+ * @param n 
+ * @param d 
+ * @param k 
+ * @param w 
+ * @param c_ind 
+ * @param c_pop 
+ * @return bird_population_t* 
+ */
 bird_population_t *bird_population_init(int n, int d, int k, double w, double c_ind, double c_pop)
 {
     bird_population_t *bird_population;
@@ -366,6 +395,8 @@ bird_population_t *bird_population_init(int n, int d, int k, double w, double c_
 
     bird_population->N = n, bird_population->D = d, bird_population->K = k;
     bird_population->W = w, bird_population->C_ind = c_ind, bird_population->C_pop = c_pop;
+
+    srand((unsigned)time( NULL ) );     
     for(int i=0; i<n; i++)
     {
         bird_population->bird[i] = bird_init(bird_population);
@@ -374,6 +405,11 @@ bird_population_t *bird_population_init(int n, int d, int k, double w, double c_
     return bird_population;
 }
 
+/**
+ * @brief 将关节角度转换成DH参数，用舵机时也就是PWM占空比与DH参数的关系
+ * @param arm 
+ * @param servo 关节（舵机）角度 
+ */
 void DH_update(robotic_arm_t *arm, double *servo)
 {
     arm->theta[1] =  servo[0];
@@ -383,16 +419,32 @@ void DH_update(robotic_arm_t *arm, double *servo)
     return;
 }
 
+/**
+ * @brief 弧度制转换为角度制
+ * @param rad 
+ * @return double 
+ */
+double rad_angle(double rad)
+{
+    return rad*180/PI;
+}
+
+/**
+ * @brief 逆解 Use the PSO algorithm to find the angle of each joint according to the target coordinates 
+ * @param arm 
+ * @param point 
+ */
 void reverse_solve_bird(robotic_arm_t *arm, Matrix_t point)
 {
     int i,j,k;
     double w = W_MAX;
     bird_population_t *bird_pop;
-    bird_pop = bird_population_init(40,arm->n,40,0.8,1.6,1.8);
+    bird_pop = bird_population_init(20,arm->n,20,0.8,1.6,1.8);
     for(i=0; i<bird_pop->K; i++)//K
     {
         for(j=0;j<bird_pop->N;j++)//N
         {
+            //计算适应值
             Matrix_t *judge_point = point_init(0,0,0);
             double ada=0;//适应值
             DH_update(arm,bird_pop->bird[j]->X);
@@ -401,6 +453,7 @@ void reverse_solve_bird(robotic_arm_t *arm, Matrix_t point)
             ada += (point.matrix[1][0] - judge_point->matrix[1][0])*(point.matrix[1][0] - judge_point->matrix[1][0]);
             ada += (point.matrix[2][0] - judge_point->matrix[2][0])*(point.matrix[2][0] - judge_point->matrix[2][0]);
             
+            //更新个体与群体最优适应值与最优解
             if(ada < bird_pop->bird[j]->opt_A)
             {
                 bird_pop->bird[j]->opt_A = ada;
@@ -414,10 +467,11 @@ void reverse_solve_bird(robotic_arm_t *arm, Matrix_t point)
                 {bird_pop->opt_X_pop[k] = bird_pop->bird[j]->X[k];}
             }
             
-            w = W_MAX - (W_MAX - W_MIN)*(i/bird_pop->K);
+            //更新w值，更新各维度速度与位置
+            w = W_MAX - (W_MAX - W_MIN)*((double)i/bird_pop->K);
             for(k=0; k < arm->n; k++)
             {
-                bird_pop->bird[j]->V[k] = w*bird_pop->bird[j]->V[k] + 1.8*(bird_pop->opt_X_pop[k] - bird_pop->bird[j]->X[k]) + 1.6*(bird_pop->bird[j]->opt_X[k] - bird_pop->bird[j]->X[k]);
+                bird_pop->bird[j]->V[k] = (w+(rand()/16384-1)*0.15)*(bird_pop->bird[j]->V[k]) + (rand()/16384)*1.8*(bird_pop->opt_X_pop[k] - bird_pop->bird[j]->X[k]) + (rand()/16384)*1.6*(bird_pop->bird[j]->opt_X[k] - bird_pop->bird[j]->X[k]);
                 bird_pop->bird[j]->V[k] = (bird_pop->bird[j]->V[k] > V_MAX) ? V_MAX : bird_pop->bird[j]->V[k];
                 bird_pop->bird[j]->V[k] = (bird_pop->bird[j]->V[k] < V_MIN) ? V_MIN : bird_pop->bird[j]->V[k];
                 bird_pop->bird[j]->X[k] += bird_pop->bird[j]->V[k]; 
@@ -425,17 +479,29 @@ void reverse_solve_bird(robotic_arm_t *arm, Matrix_t point)
                 bird_pop->bird[j]->X[k] = (bird_pop->bird[j]->X[k] < X_MIN) ? X_MIN : bird_pop->bird[j]->X[k];
             }
             
+            //打印调试
+            printf("    bird%d: \r\n        当前位置X: ",j);
+            for(int m=0; m<arm->n; m++) {printf("%.3f|%.1f, ",bird_pop->bird[j]->X[m],rad_angle(bird_pop->bird[j]->X[m]));}
+            printf("\r\n        当前速度V: ");
+            for(int m=0; m<arm->n; m++) {printf("%.3f|%.1f, ",bird_pop->bird[j]->V[m],rad_angle(bird_pop->bird[j]->V[m]));}
+            printf("\r\n");
             free(judge_point);
         }
-    printf("%.3f\r\n",bird_pop->opt_A_pop);
-    for(k=0; k < arm->n; k++) {printf("%.2f ",bird_pop->opt_X_pop[k]);}
+    //打印调试
+    printf("%d 最适值: %.3f 惯性w: %.3f\r\n",i,bird_pop->opt_A_pop,w);
+    printf("   角度X: ");
+    for(k=0; k < arm->n; k++) {printf("%.2f|%.1f ",bird_pop->opt_X_pop[k],rad_angle(bird_pop->opt_X_pop[k]));}
     printf("\r\n");
-    }
 
+    }
+    //将机械臂更新为得到的最优解
     DH_update(arm,bird_pop->opt_X_pop);
     return;
 }
 
+/**
+ * @brief test the function of PSO algorithm
+ */
 void test_reverse_solve_bird(void)
 {
     robotic_arm_t *test_arm;
@@ -447,7 +513,7 @@ void test_reverse_solve_bird(void)
     //reverse_solve_bird(test_arm, *target_point);
     reverse_solve_bird(test_arm, *target_point);
     for(int k=1; k <= test_arm->n; k++)
-    {printf("theta:%.3f ",test_arm->theta[k]);}
+    {printf("theta: %.3f ",test_arm->theta[k]);}
     printf("\r\n");
     foward_solve(test_arm,test_point);
     printf_matrix(test_point);
@@ -457,8 +523,6 @@ void test_reverse_solve_bird(void)
     free(target_point);
     return;
 }
-
-
 
 int main()
 {
