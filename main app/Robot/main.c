@@ -113,7 +113,7 @@ int main(void)
 				AX_ROBOT_MoveCtl();
 				
 				//舵机驱动板
-				pca_test();
+				//pca_test();
 			
 				//机器人电量管理
 				//AX_ROBOT_BatteryManagement();
@@ -137,7 +137,7 @@ void pca_test(void)
 			for(i=0;i<=15;i++)
 			{
 				pca_setpwm1(i,0,pwm);
-				AX_Delayms(500);
+				AX_Delayms(100);
 			}
 			printf("PWM SET: %d\r\n",pwm);
 			//delay_ms(1000);
@@ -188,17 +188,26 @@ void AX_ROBOT_MoveCtl(void)
 
 		//电机PID速度控制
 		ax_motor_pwm[0] = AX_PID_MotorVelocityCtlA(ax_encoder_delta_target[0], ax_encoder_delta[0]);   
-		ax_motor_pwm[1] = AX_PID_MotorVelocityCtlB(ax_encoder_delta_target[1], ax_encoder_delta[1]);   
+		//ax_motor_pwm[1] = AX_PID_MotorVelocityCtlB(ax_encoder_delta_target[1], ax_encoder_delta[1]);   
+		ax_motor_pwm[1] =  -AX_PID_MotorVelocityCtlB(30,ax_encoder_delta[1]);//PID调参用
 		ax_motor_pwm[2] = AX_PID_MotorVelocityCtlC(ax_encoder_delta_target[2], ax_encoder_delta[2]);   
 		ax_motor_pwm[3] = AX_PID_MotorVelocityCtlD(ax_encoder_delta_target[3], ax_encoder_delta[3]);  
 					
 		count++;
-		if(count%20==0)
+		if(count%20 == 0)
+		{
+			u8 i;
+			for(i=1; i<=1; i++)
+			{ printf("编码器: %d",ax_encoder_delta[i]); }
+			printf("\r\n");
+		}
+		
+		if(count%125==0)
 		{
 			//count = 0;
 			printf("count: %d\r\n",count);
 			printf("target_speed: X:%d; Y:%d; w:%d\r\n",robot_target_speed[0],robot_target_speed[1],robot_target_speed[2]);
-			printf("four wheels: %d; %d; %d;% d\r\n",ax_encoder_delta_target[0],ax_encoder_delta_target[1],ax_encoder_delta_target[2],ax_encoder_delta_target[3]);
+			printf("target_four wheels: %d; %d; %d;% d\r\n",ax_encoder_delta_target[0],ax_encoder_delta_target[1],ax_encoder_delta_target[2],ax_encoder_delta_target[3]);
 			printf("set_PWM: %d; %d; %d; %d\r\n",ax_motor_pwm[0],ax_motor_pwm[1],ax_motor_pwm[2],ax_motor_pwm[3]);
 		}
 		
@@ -211,10 +220,10 @@ void AX_ROBOT_MoveCtl(void)
 			flag = !flag;
 		}
 		
-		AX_MOTOR_A_SetSpeed(ax_motor_pwm[0]);
-		AX_MOTOR_B_SetSpeed(ax_motor_pwm[1]);  
-		AX_MOTOR_C_SetSpeed(-ax_motor_pwm[2]);
-		AX_MOTOR_D_SetSpeed(-ax_motor_pwm[3]); 
+		//AX_MOTOR_A_SetSpeed(ax_motor_pwm[0]);
+		//AX_MOTOR_B_SetSpeed(ax_motor_pwm[1]);  
+		//AX_MOTOR_C_SetSpeed(-ax_motor_pwm[2]);
+		//AX_MOTOR_D_SetSpeed(-ax_motor_pwm[3]); 
 		
 }
 

@@ -32,9 +32,14 @@
 #define PID_SCALE  0.1f  //PID缩放系数
 #define PID_INTEGRAL_UP 1000  //积分上限
 
+/*
 int16_t ax_motor_kp=600;  //电机转速PID-P
 int16_t ax_motor_ki=0;    //电机转速PID-I
 int16_t ax_motor_kd=400;  //电机转速PID-D
+*/
+int16_t ax_motor_kp=300; 
+int16_t ax_motor_ki=0;    //电机转速PID-I
+int16_t ax_motor_kd=200; 
 
 /**
   * @简  述  电机A PID控制函数
@@ -70,7 +75,7 @@ int16_t AX_PID_MotorVelocityCtlA(int16_t spd_target, int16_t spd_current)
 		motor_pwm_out = -2000;
   
 	
-	printf("PID_A: tar:%d; cur:%d; output:%d\r\n",spd_target,spd_current,motor_pwm_out);
+	//printf("PID_A: tar:%d; cur:%d; output:%d\r\n",spd_target,spd_current,motor_pwm_out);
 	//返回PWM控制值
 	return motor_pwm_out;
 }	
@@ -107,7 +112,9 @@ int16_t AX_PID_MotorVelocityCtlB(int16_t spd_target, int16_t spd_current)
 		motor_pwm_out = 2000;
 	if(motor_pwm_out < -2000)
 		motor_pwm_out = -2000;
-
+	
+	//printf("PID_B: tar:%d; cur:%d; output:%d\r\n",spd_target,spd_current,motor_pwm_out);
+	
 	//返回PWM控制值
 	return motor_pwm_out;
 }
