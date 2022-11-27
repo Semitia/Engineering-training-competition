@@ -159,6 +159,7 @@ void AX_Kinematics_Forward(int16_t* input, int16_t* output)
  */
 void Mecanum_Forward(int16_t* input, int16_t* output)
 {
+	//printf("input: %d,%d,%d,%d\r\n",input[0],input[1],input[2],input[3]);
 	static double delta_count[4];  
 	static double delta_v_ave[3];
 	static double delta_v_integral[2];

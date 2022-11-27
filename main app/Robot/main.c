@@ -17,6 +17,9 @@
 #include "ax_kinematics.h" //运动学解析
 #include "pca9685.h"
 #include "arm.h"
+#include "bmp.h"
+#include "oled.h"
+
 
 #define ENCODER_MID_VALUE  30000  
 #define VBAT_VOL_CHG    1050 
@@ -26,7 +29,7 @@
 int16_t ax_encoder[4];	//编码器累加值
 int16_t ax_encoder_delta[4];	//编码器变化值
 int16_t ax_encoder_delta_target[4] = {0};  //编码器目标变化值
-int16_t robot_odom[6] = {0}; //里程计数据，绝对值和变化值，x y yaw dx dy dyaw
+int16_t robot_odom[6] = {0,0,0,0,0,0}; //里程计数据，绝对值和变化值，x y yaw dx dy dyaw
 int16_t ax_motor_pwm[4];  //电机PWM
 uint16_t ax_bat_vol;  //电池电压
 int16_t mpu_data[10];  //陀螺仪，加速度，姿态角
@@ -36,7 +39,8 @@ int16_t robot_params[2] = {1000,1000};  //机器人参数
 
 u16 count=0;
 u8 flag=0;
-
+int16_t set_encoder=0;
+int16_t record_speed[600];
 
 //主要函数声明
 void AX_ROBOT_GetImuData(void);  //读取MPU6050数据
@@ -44,6 +48,7 @@ void AX_ROBOT_MoveCtl(void);  //机器人运动控制函数
 void AX_ROBOT_BatteryManagement(void);  //机器人电池管理
 void AX_ROBOT_SendDataToPi(void);  //机器人发送数据到树莓派
 void pca_test(void);
+void oled_output(void);
 
 /**
   * @简  述  程序主函数
@@ -65,6 +70,9 @@ int main(void)
 	AX_VIN_Init();
 	AX_UART_DB_Init(115200);
 	AX_UART_PI_Init(115200);
+	OLED_Init();
+	OLED_ColorTurn(0);//0正常显示，1 反色显示
+  OLED_DisplayTurn(0);//0正常显示 1 屏幕翻转显示
 
 	//编码器初始化
 	AX_ENCODER_AB_Init(ENCODER_MID_VALUE*2);  
@@ -113,13 +121,18 @@ int main(void)
 				AX_ROBOT_MoveCtl();
 				
 				//舵机驱动板
-				//pca_test();
+				pca_test();
 			
 				//机器人电量管理
 				//AX_ROBOT_BatteryManagement();
 			
 				//机器人发送数据到树莓派
-				AX_ROBOT_SendDataToPi();
+				//AX_ROBOT_SendDataToPi();
+				
+				//
+				oled_output(); 
+
+				//
 			}
 			
 			//计数器累加
@@ -131,19 +144,25 @@ int main(void)
 void pca_test(void)
 {
 		u16 pwm;
-		for(pwm = 100; pwm <= 200; pwm+=20)
+		for(pwm = 180; pwm <= 200; pwm+=20)
 		{
 			u8 i;
 			for(i=0;i<=15;i++)
 			{
 				pca_setpwm1(i,0,pwm);
-				AX_Delayms(100);
+				AX_Delayms(200);
 			}
 			printf("PWM SET: %d\r\n",pwm);
-			//delay_ms(1000);
+			//AX_Delayms(1000);
 		}
 }
 
+void oled_output(void)
+{
+		OLED_ShowString(15,10,"Hello world",8,1);
+		
+		OLED_Refresh();
+}
 
 /**
   * @简  述  机器人获取MPU6050 加速度陀螺仪姿态数据
@@ -156,6 +175,7 @@ void AX_ROBOT_GetImuData(void)
     AX_MPU6050_DMP_GetData(mpu_data);
 	
 }
+
 /**
   * @简  述  机器人运动控制函数
   * @参  数  无
@@ -163,7 +183,7 @@ void AX_ROBOT_GetImuData(void)
   */
 void AX_ROBOT_MoveCtl(void)
 { 
-	  //robot_target_speed[0] = 500;
+		u16 k;
 	  //获取编码器变化值
 		ax_encoder_delta[0] = (AX_ENCODER_AB_GetCounter()-ENCODER_MID_VALUE);
 		ax_encoder_delta[1] = -(AX_ENCODER_CD_GetCounter()  -ENCODER_MID_VALUE);
@@ -185,15 +205,46 @@ void AX_ROBOT_MoveCtl(void)
 		//麦克纳姆轮运动学解析
 		Mecanum_Forward(ax_encoder, robot_odom);
 		Mecanum_Inverse(robot_target_speed, ax_encoder_delta_target); //逆向运动学解析
-
+		
+		/*
+		//姿态打印
+		count++;
+		if(count>=30)
+		{
+			count = 0;
+			printf("x: %d, y: %d, yaw: %d, dx: %d, dy: %d, dyaw: %d\r\n",robot_odom[0],robot_odom[1],robot_odom[2],robot_odom[3],robot_odom[4],robot_odom[5]);
+		}
+		*/
+		
 		//电机PID速度控制
 		ax_motor_pwm[0] = AX_PID_MotorVelocityCtlA(ax_encoder_delta_target[0], ax_encoder_delta[0]);   
-		//ax_motor_pwm[1] = AX_PID_MotorVelocityCtlB(ax_encoder_delta_target[1], ax_encoder_delta[1]);   
-		ax_motor_pwm[1] =  -AX_PID_MotorVelocityCtlB(30,ax_encoder_delta[1]);//PID调参用
+		ax_motor_pwm[1] = AX_PID_MotorVelocityCtlB(ax_encoder_delta_target[1], ax_encoder_delta[1]);   
+		//ax_motor_pwm[1] =  -AX_PID_MotorVelocityCtlB_plus(set_encoder,ax_encoder_delta[1]);//PID调参用
 		ax_motor_pwm[2] = AX_PID_MotorVelocityCtlC(ax_encoder_delta_target[2], ax_encoder_delta[2]);   
 		ax_motor_pwm[3] = AX_PID_MotorVelocityCtlD(ax_encoder_delta_target[3], ax_encoder_delta[3]);  
-					
+		
+		/*电机PID调试
 		count++;
+		record_speed[count] = ax_encoder_delta[1];
+		
+		if(count>=50)
+		{
+			count = 0;
+			if(flag) set_encoder = 0;
+			else set_encoder = 90;
+			 
+			for(k=1; k<=50; k++)
+			{
+				if(record_speed[k] > 200) {continue;}
+				printf("%d\r\n",record_speed[k]);
+				AX_Delayms(100);
+			}
+			
+			flag = !flag;
+		}
+		*/
+
+		/*电机初步调试
 		if(count%20 == 0)
 		{
 			u8 i;
@@ -219,6 +270,8 @@ void AX_ROBOT_MoveCtl(void)
 			
 			flag = !flag;
 		}
+		*/
+		
 		
 		//AX_MOTOR_A_SetSpeed(ax_motor_pwm[0]);
 		//AX_MOTOR_B_SetSpeed(ax_motor_pwm[1]);  
