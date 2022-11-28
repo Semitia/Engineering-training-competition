@@ -41,6 +41,8 @@ u16 count=0;
 u8 flag=0;
 int16_t set_encoder=0;
 int16_t record_speed[600];
+u8 rec_data[18];//第0位为数据长度，此后每两位表示一个数据
+u8 node[6] = {0, 1, 2, 3, 4};
 
 //主要函数声明
 void AX_ROBOT_GetImuData(void);  //读取MPU6050数据
@@ -49,6 +51,8 @@ void AX_ROBOT_BatteryManagement(void);  //机器人电池管理
 void AX_ROBOT_SendDataToPi(void);  //机器人发送数据到树莓派
 void pca_test(void);
 void oled_output(void);
+void data_receive(void);
+
 
 /**
   * @简  述  程序主函数
@@ -73,6 +77,7 @@ int main(void)
 	OLED_Init();
 	OLED_ColorTurn(0);//0正常显示，1 反色显示
   OLED_DisplayTurn(0);//0正常显示 1 屏幕翻转显示
+	
 
 	//编码器初始化
 	AX_ENCODER_AB_Init(ENCODER_MID_VALUE*2);  
@@ -133,12 +138,41 @@ int main(void)
 				oled_output(); 
 
 				//
+				data_receive();
+				
 			}
 			
 			//计数器累加
 			cnt++;
 		}
 	}
+}
+
+void data_receive(void)
+{
+	u8 i;
+	u16 servo[6];
+	u8 num = AX_UART_DB_GetData(rec_data);
+	if(!num) {return;}
+	/*
+	for(i=1; i<num; i++)
+	{
+		printf("%d, ",rec_data[i]);
+	}
+	printf("\r\n");
+	*/
+	servo[0] = (rec_data[1]<<8) + rec_data[2];
+	servo[1] = (rec_data[3]<<8) + rec_data[4];
+	servo[2] = (rec_data[5]<<8) + rec_data[6];
+	servo[3] = (rec_data[7]<<8) + rec_data[8];
+	servo[4] = (rec_data[9]<<8) + rec_data[10];
+	
+	for(i = 0; i <= 4; i++)
+	{
+		pca_setpwm1(node[i],0,servo[i]);
+	}
+	
+	return;
 }
 
 void pca_test(void)
