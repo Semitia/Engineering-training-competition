@@ -43,6 +43,9 @@ int16_t set_encoder=0;
 int16_t record_speed[600];
 u8 rec_data[18];//第0位为数据长度，此后每两位表示一个数据
 u8 node[6] = {0, 1, 2, 3, 4};
+//静止， 前进， 后退， 逆时针， 顺时针， 机械臂
+double position[3];//x,y,angle
+
 
 //主要函数声明
 void AX_ROBOT_GetImuData(void);  //读取MPU6050数据
@@ -126,7 +129,7 @@ int main(void)
 				AX_ROBOT_MoveCtl();
 				
 				//舵机驱动板
-				pca_test();
+				//pca_test();
 			
 				//机器人电量管理
 				//AX_ROBOT_BatteryManagement();
@@ -154,13 +157,13 @@ void data_receive(void)
 	u16 servo[6];
 	u8 num = AX_UART_DB_GetData(rec_data);
 	if(!num) {return;}
-	/*
+	
 	for(i=1; i<num; i++)
 	{
-		printf("%d, ",rec_data[i]);
+		printf("%d: %d\r\n",i,rec_data[i]);
 	}
 	printf("\r\n");
-	*/
+	
 	servo[0] = (rec_data[1]<<8) + rec_data[2];
 	servo[1] = (rec_data[3]<<8) + rec_data[4];
 	servo[2] = (rec_data[5]<<8) + rec_data[6];
@@ -237,7 +240,8 @@ void AX_ROBOT_MoveCtl(void)
 		ax_encoder[3] = ax_encoder[3] + ax_encoder_delta[3];
 		
 		//麦克纳姆轮运动学解析
-		Mecanum_Forward(ax_encoder, robot_odom);
+		//Mecanum_Forward(ax_encoder, robot_odom);
+		my_forward(ax_encoder);
 		Mecanum_Inverse(robot_target_speed, ax_encoder_delta_target); //逆向运动学解析
 		
 		/*
@@ -256,6 +260,7 @@ void AX_ROBOT_MoveCtl(void)
 		//ax_motor_pwm[1] =  -AX_PID_MotorVelocityCtlB_plus(set_encoder,ax_encoder_delta[1]);//PID调参用
 		ax_motor_pwm[2] = AX_PID_MotorVelocityCtlC(ax_encoder_delta_target[2], ax_encoder_delta[2]);   
 		ax_motor_pwm[3] = AX_PID_MotorVelocityCtlD(ax_encoder_delta_target[3], ax_encoder_delta[3]);  
+		ax_motor_pwm[3] =  -AX_PID_MotorVelocityCtlB_plus(50,ax_encoder_delta[1]);
 		
 		/*电机PID调试
 		count++;

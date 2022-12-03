@@ -1,40 +1,10 @@
-/**			                                                    
-		   ____                    _____ _____  _____        XTARK@塔克创新
-		  / __ \                  / ____|  __ \|  __ \  
-		 | |  | |_ __   ___ _ __ | |    | |__) | |__) |
-		 | |  | | '_ \ / _ \ '_ \| |    |  _  /|  ___/ 
-		 | |__| | |_) |  __/ | | | |____| | \ \| |     
-		  \____/| .__/ \___|_| |_|\_____|_|  \_\_|     
-		    		| |                                    
-		    		|_|  OpenCRP 树莓派 专用ROS机器人控制器                                   
-									 
-  ****************************************************************************** 
-  *           
-  * 版权所有： XTARK@塔克创新  版权所有，盗版必究
-  * 官网网站： www.xtark.cn
-  * 淘宝店铺： https://shop246676508.taobao.com  
-  * 塔克媒体： www.cnblogs.com/xtark（博客）
-	* 塔克微信： 微信公众号：塔克创新（获取最新资讯）
-  *      
-  ******************************************************************************
-  * @作  者  Musk Han@XTARK
-  * @版  本  V1.0
-  * @日  期  2019-8-8
-  * @内  容  机器人运动学解析
-  *
-  ******************************************************************************
-  * @说  明
-  *  
-  * 
-  ******************************************************************************
-  */
-
-
 #include "ax_kinematics.h"
 #include <stdio.h>
 #include "ax_delay.h"
 #include <math.h>
 
+#define LINE_FIX 0.2
+#define ANGLE_FIX 0.2 
 
 //变量定义
 int32_t  current_count[4] = {0};
@@ -46,6 +16,9 @@ float  wheel_track_cali = 0.3;
 
 extern int16_t robot_odom[6];
 extern int16_t robot_target_speed[3];
+enum move_state{stop, forward, back, spin_rev, spin_clo, arm};
+enum move_state state;
+extern int16_t position[3];
 
 /**
   * @简  述  机器人运动参数设置
@@ -152,10 +125,47 @@ void AX_Kinematics_Forward(int16_t* input, int16_t* output)
 		output[5] = (int16_t)(delta_v_ave[1]*1000);
 }
 
-/******************* (C) 版权 2019 XTARK **************************************/
+
+void my_forward(int16_t* input)
+{
+	switch(state)
+	{
+		case stop:
+		{
+			break;
+		}
+		case forward:
+		{
+			double len = LINE_FIX * (input[0]+input[1]+input[3])/3;
+			position[0] += len*cos(position[2]);
+			position[1] += len*cos(position[2]);
+			break;
+		}
+		case back:
+		{
+			break;
+		}
+		case spin_rev:
+		{
+			double ang = ANGLE_FIX * (input[0]-input[1]+input[3])/3;
+			position[2] += ang;
+			if(position[2] > 6.2832) {position[2] -= 6.2832;}
+			break;
+		}
+		case spin_clo:
+		{
+			break;
+		}
+		case arm:
+		{
+			break;
+		}
+	}
+	return;
+}
 
 /**
-
+麦克纳姆论正解算
  */
 void Mecanum_Forward(int16_t* input, int16_t* output)
 {
@@ -227,6 +237,11 @@ void Mecanum_Inverse(int16_t* input, int16_t* output)
 	wheel_velocity[2] =  y_speed + x_speed - (wheel_track_cali)*yaw_speed;	
 	wheel_velocity[3] = -y_speed + x_speed + (wheel_track_cali)*yaw_speed;	
 	//printf("Wheelvelocity: %f, %f, %f, %f\r\n",wheel_velocity[0],wheel_velocity[1],wheel_velocity[2],wheel_velocity[3]);
+	
+	//update the state
+	if(robot_target_speed[0]==0 && robot_target_speed[1]==0 && robot_target_speed[2]==0) state = stop;//stop
+	else if(robot_target_speed[1]==0 && robot_target_speed[2]==0) state = forward;//forward
+	else if(robot_target_speed[0]==0 && robot_target_speed[1]==0) state = spin_rev;//reverse clock
 	
 	output[0] = (int16_t)(wheel_velocity[0] * ticks_per_meter/PID_RATE);
 	output[1] = (int16_t)(wheel_velocity[1] * ticks_per_meter/PID_RATE);

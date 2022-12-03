@@ -29,5 +29,6 @@ void AX_Kinematics_Forward(int16_t* input, int16_t* output); //正解(ForwardKinem
 void AX_Kinematics_Inverse(int16_t* input, int16_t* output); //逆解(InverseKinematics)：底盘三轴速度->轮子速度
 void Mecanum_Forward(int16_t* input, int16_t* output);
 void Mecanum_Inverse(int16_t* input, int16_t* output);
+void my_forward(int16_t* input);
 
 #endif
