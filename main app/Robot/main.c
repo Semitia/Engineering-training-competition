@@ -24,6 +24,7 @@
 #define ENCODER_MID_VALUE  30000  
 #define VBAT_VOL_CHG    1050 
 #define VBAT_VOL_OFF    990   
+#define PI 3.1415926
 
 
 int16_t ax_encoder[4];	//编码器累加值
@@ -44,8 +45,8 @@ int16_t record_speed[600];
 u8 rec_data[18];//第0位为数据长度，此后每两位表示一个数据
 u8 node[6] = {0, 1, 2, 3, 4};
 //静止， 前进， 后退， 逆时针， 顺时针， 机械臂
-double position[3];//x,y,angle
-
+double position[3] = {0,0,PI/2};//x,y,angle
+extern u8 _state;
 
 //主要函数声明
 void AX_ROBOT_GetImuData(void);  //读取MPU6050数据
@@ -111,7 +112,6 @@ int main(void)
 	
   //绿灯点亮，提示运行
   AX_LED_Green_On();
-	robot_target_speed[0]=500;
 
 	while(1)
 	{
@@ -157,22 +157,33 @@ void data_receive(void)
 	u16 servo[6];
 	u8 num = AX_UART_DB_GetData(rec_data);
 	if(!num) {return;}
-	
-	for(i=1; i<num; i++)
+	switch(rec_data[0])
 	{
-		printf("%d: %d\r\n",i,rec_data[i]);
-	}
-	printf("\r\n");
+		case 2: //servo control
+			for(i=1; i<num; i++)
+			{
+				printf("%d: %d\r\n",i,rec_data[i]);
+			}
+			printf("\r\n");
+			
+			servo[0] = (rec_data[1]<<8) + rec_data[2];
+			servo[1] = (rec_data[3]<<8) + rec_data[4];
+			servo[2] = (rec_data[5]<<8) + rec_data[6];
+			servo[3] = (rec_data[7]<<8) + rec_data[8];
+			servo[4] = (rec_data[9]<<8) + rec_data[10];
+			
+			for(i = 0; i <= 4; i++)
+			{
+				pca_setpwm1(node[i],0,servo[i]);
+			}
 	
-	servo[0] = (rec_data[1]<<8) + rec_data[2];
-	servo[1] = (rec_data[3]<<8) + rec_data[4];
-	servo[2] = (rec_data[5]<<8) + rec_data[6];
-	servo[3] = (rec_data[7]<<8) + rec_data[8];
-	servo[4] = (rec_data[9]<<8) + rec_data[10];
-	
-	for(i = 0; i <= 4; i++)
-	{
-		pca_setpwm1(node[i],0,servo[i]);
+			break;
+		case 3: //move control
+			robot_target_speed[0] = (rec_data[1]<<8) + rec_data[2];
+			robot_target_speed[1] = (rec_data[3]<<8) + rec_data[4];
+		  robot_target_speed[2] = (rec_data[5]<<8) + rec_data[6];
+		
+			break;	
 	}
 	
 	return;
@@ -220,12 +231,15 @@ void AX_ROBOT_GetImuData(void)
   */
 void AX_ROBOT_MoveCtl(void)
 { 
-		u16 k;
+//		u16 k;
 	  //获取编码器变化值
-		ax_encoder_delta[0] = (AX_ENCODER_AB_GetCounter()-ENCODER_MID_VALUE);
+		//ax_encoder_delta[0] = (AX_ENCODER_AB_GetCounter()-ENCODER_MID_VALUE);
 		ax_encoder_delta[1] = -(AX_ENCODER_CD_GetCounter()  -ENCODER_MID_VALUE);
-		ax_encoder_delta[2] = (AX_ENCODER_EF_GetCounter()-ENCODER_MID_VALUE);
-		ax_encoder_delta[3] = -(AX_ENCODER_GH_GetCounter()  -ENCODER_MID_VALUE);
+		//ax_encoder_delta[2] = -(AX_ENCODER_EF_GetCounter()-ENCODER_MID_VALUE);
+		ax_encoder_delta[3] = (AX_ENCODER_GH_GetCounter()  -ENCODER_MID_VALUE);
+	
+		ax_encoder_delta[0] = ax_encoder_delta[1];
+		ax_encoder_delta[2] = ax_encoder_delta[3];
 		
 	  //设置编码器中间值
 		AX_ENCODER_AB_SetCounter(ENCODER_MID_VALUE);
@@ -234,33 +248,39 @@ void AX_ROBOT_MoveCtl(void)
 		AX_ENCODER_GH_SetCounter(ENCODER_MID_VALUE);
 		
 	  //计算编码器累加值
-		ax_encoder[0] = ax_encoder[0] + ax_encoder_delta[0];
-		ax_encoder[1] = ax_encoder[1] + ax_encoder_delta[1];
-		ax_encoder[2] = ax_encoder[2] + ax_encoder_delta[2];
-		ax_encoder[3] = ax_encoder[3] + ax_encoder_delta[3];
+		ax_encoder[0] += ax_encoder_delta[0];
+		ax_encoder[1] += ax_encoder_delta[1];
+		ax_encoder[2] += ax_encoder_delta[2];
+		ax_encoder[3] += ax_encoder_delta[3];
 		
 		//麦克纳姆轮运动学解析
 		//Mecanum_Forward(ax_encoder, robot_odom);
-		my_forward(ax_encoder);
-		Mecanum_Inverse(robot_target_speed, ax_encoder_delta_target); //逆向运动学解析
+		my_forward(ax_encoder_delta);
+		my_inverse(robot_target_speed, ax_encoder_delta_target);
+		//Mecanum_Inverse(robot_target_speed, ax_encoder_delta_target); //逆向运动学解析
 		
-		/*
+		/**/
 		//姿态打印
 		count++;
 		if(count>=30)
 		{
+			u8 i;
 			count = 0;
-			printf("x: %d, y: %d, yaw: %d, dx: %d, dy: %d, dyaw: %d\r\n",robot_odom[0],robot_odom[1],robot_odom[2],robot_odom[3],robot_odom[4],robot_odom[5]);
+			printf("state: %d, \r\n",_state);
+			printf("target speed:%d, %d, %d\r\n",robot_target_speed[0],robot_target_speed[1],robot_target_speed[2]);
+			printf("轮子:%d, %d, %d, %d\r\n",ax_encoder_delta_target[0],ax_encoder_delta_target[1],ax_encoder_delta_target[2],ax_encoder_delta_target[3]);
+			printf("x:%.2f, y:%.2f, angle:%.2f\r\n",position[0],position[1],position[2]);
+			//printf("x: %d, y: %d, yaw: %d, dx: %d, dy: %d, dyaw: %d\r\n",robot_odom[0],robot_odom[1],robot_odom[2],robot_odom[3],robot_odom[4],robot_odom[5]);
 		}
-		*/
+		
 		
 		//电机PID速度控制
-		ax_motor_pwm[0] = AX_PID_MotorVelocityCtlA(ax_encoder_delta_target[0], ax_encoder_delta[0]);   
-		ax_motor_pwm[1] = AX_PID_MotorVelocityCtlB(ax_encoder_delta_target[1], ax_encoder_delta[1]);   
-		//ax_motor_pwm[1] =  -AX_PID_MotorVelocityCtlB_plus(set_encoder,ax_encoder_delta[1]);//PID调参用
-		ax_motor_pwm[2] = AX_PID_MotorVelocityCtlC(ax_encoder_delta_target[2], ax_encoder_delta[2]);   
-		ax_motor_pwm[3] = AX_PID_MotorVelocityCtlD(ax_encoder_delta_target[3], ax_encoder_delta[3]);  
-		ax_motor_pwm[3] =  -AX_PID_MotorVelocityCtlB_plus(50,ax_encoder_delta[1]);
+		//ax_motor_pwm[0] = AX_PID_MotorVelocityCtlA(ax_encoder_delta_target[0], ax_encoder_delta[0]);   
+		//ax_motor_pwm[1] = AX_PID_MotorVelocityCtlB(ax_encoder_delta_target[1], ax_encoder_delta[1]);   
+		//ax_motor_pwm[0] = -AX_PID_MotorVelocityCtlA_plus(50, ax_encoder_delta[0]);
+		ax_motor_pwm[1] = -AX_PID_MotorVelocityCtlB_plus(ax_encoder_delta_target[1], ax_encoder_delta[1]);//PID调参用
+		//ax_motor_pwm[2] =  AX_PID_MotorVelocityCtlC_plus(50, ax_encoder_delta[2]);   
+		ax_motor_pwm[3] =  AX_PID_MotorVelocityCtlD_plus(ax_encoder_delta_target[3], ax_encoder_delta[3]);  
 		
 		/*电机PID调试
 		count++;
@@ -311,12 +331,40 @@ void AX_ROBOT_MoveCtl(void)
 		}
 		*/
 		
-		
-		//AX_MOTOR_A_SetSpeed(ax_motor_pwm[0]);
-		//AX_MOTOR_B_SetSpeed(ax_motor_pwm[1]);  
-		//AX_MOTOR_C_SetSpeed(-ax_motor_pwm[2]);
-		//AX_MOTOR_D_SetSpeed(-ax_motor_pwm[3]); 
-		
+		switch(_state)
+		{
+			case 0: //stop
+				AX_MOTOR_A_SetSpeed(0);
+				AX_MOTOR_B_SetSpeed(0);  
+				AX_MOTOR_C_SetSpeed(0);
+				AX_MOTOR_D_SetSpeed(0); 
+				break;
+			case 1: //forward_back
+				AX_MOTOR_A_SetSpeed(-ax_motor_pwm[1]);
+				AX_MOTOR_B_SetSpeed(ax_motor_pwm[1]);  
+				AX_MOTOR_C_SetSpeed(-ax_motor_pwm[3]);
+				AX_MOTOR_D_SetSpeed(ax_motor_pwm[3]); 
+				break;
+			case 2: //left_right
+				AX_MOTOR_A_SetSpeed(ax_motor_pwm[1]);
+				AX_MOTOR_B_SetSpeed(ax_motor_pwm[1]);  
+				AX_MOTOR_C_SetSpeed(ax_motor_pwm[3]);
+				AX_MOTOR_D_SetSpeed(ax_motor_pwm[3]); 				
+				break;
+			case 3: //spin
+				AX_MOTOR_A_SetSpeed(ax_motor_pwm[1]);
+				AX_MOTOR_B_SetSpeed(ax_motor_pwm[1]);  
+				AX_MOTOR_C_SetSpeed(ax_motor_pwm[3]);
+				AX_MOTOR_D_SetSpeed(ax_motor_pwm[3]); 				
+				break;
+			case 4: //arm
+				AX_MOTOR_A_SetSpeed(0);
+				AX_MOTOR_B_SetSpeed(0);  
+				AX_MOTOR_C_SetSpeed(0);
+				AX_MOTOR_D_SetSpeed(0); 				
+				break;
+		}
+
 }
 
 /**

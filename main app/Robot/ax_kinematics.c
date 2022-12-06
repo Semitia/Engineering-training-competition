@@ -4,7 +4,7 @@
 #include <math.h>
 
 #define LINE_FIX 0.2
-#define ANGLE_FIX 0.2 
+#define ANGLE_FIX 0.01
 
 //变量定义
 int32_t  current_count[4] = {0};
@@ -16,9 +16,10 @@ float  wheel_track_cali = 0.3;
 
 extern int16_t robot_odom[6];
 extern int16_t robot_target_speed[3];
-enum move_state{stop, forward, back, spin_rev, spin_clo, arm};
+enum move_state{stop, forward_back, left_right, spin, arm};
 enum move_state state;
-extern int16_t position[3];
+u8 _state;
+extern double position[3];
 
 /**
   * @简  述  机器人运动参数设置
@@ -40,91 +41,6 @@ void AX_Kinematics_Init(int16_t* robot_params)
 	ticks_per_meter    = (float)ENCODER_RESOLUTION/((float)WHEEL_DIAMETER*3.1415926*linear_correction_factor);		
 }
 
-/**
-  * @简  述  逆向运动学解析，底盘三轴速度->轮子速度
-  * @参  数  input:  robot_target_speed[]  机器人三轴速度 m/s*1000
-  *          output：ax_encoder_delta_target[] 电机期望速度 count
-  * @返回值  无
-  */
-void AX_Kinematics_Inverse(int16_t* input, int16_t* output)
-{
-	float x_speed   = ((float)input[0])/1000;
-	float yaw_speed = ((float)input[2])/1000;
-	
-	//printf("X_Speed if %f\r\n",x_speed);
-	
-	static float wheel_velocity[4] = {0};
-
-		wheel_velocity[0] = (x_speed-yaw_speed*wheel_track_cali);
-		wheel_velocity[1] = x_speed+yaw_speed*wheel_track_cali;
-		wheel_velocity[2] = wheel_velocity[0];
-		wheel_velocity[3] = wheel_velocity[1];
-
-
-	output[0] = (int16_t)(wheel_velocity[0] * ticks_per_meter/PID_RATE);
-	output[1] = (int16_t)(wheel_velocity[1] * ticks_per_meter/PID_RATE);
-	output[2] = output[0];
-	output[3] = output[1];
-}
-
-/**
-  * @简  述  正向运动学解析，轮子编码值->底盘三轴里程计坐标
-  * @参  数  input: ax_encoder[]  编码器累加值
-  *          output: robot_odom[] 三轴里程计 x y yaw
-  * @返回值  无
-  */
-void AX_Kinematics_Forward(int16_t* input, int16_t* output)
-{
-		static double delta_count[2];  
-		static double delta_v_ave[3];
-		static double delta_v_integral[2];
-		static int16_t recv_count[2];
-	
-	recv_count[0] = -input[0];
-	recv_count[1] = input[1];
-
-	
-		//编码器计数溢出处理
-	for(int i=0;i<2;i++)
-	{
-			if(recv_count[i] < ENCODER_LOW_WRAP && current_count[i] > ENCODER_HIGH_WRAP)
-				wheel_mult[i]++;
-			else if(recv_count[i] > ENCODER_HIGH_WRAP && current_count[i] < ENCODER_LOW_WRAP)
-				wheel_mult[i]--;
-			else
-				wheel_mult[i]=0;
-	}
-
-	//将编码器数值转化为前进的距离，单位m
-	for(int i=0;i<2;i++)
-	{	
-			delta_count[i] = 1.0*((float)recv_count[i] + wheel_mult[i]*(ENCODER_MAX-ENCODER_MIN)-current_count[i])/ticks_per_meter;
-			current_count[i] = recv_count[i];
-	}
-		//计算底盘x轴变化距离m与Yaw轴朝向变化rad
-		delta_v_ave[0] = ((delta_count[1]-delta_count[0])/2.0);  // 线速度
-		delta_v_ave[1] = ((delta_count[0]+delta_count[1])/(2*wheel_track_cali));  //角速度
-		//计算底盘坐标系下的x轴与Yaw轴的速度
-		delta_v_integral[0] = cos(delta_v_ave[1])*delta_v_ave[0];
-	  delta_v_integral[1] = -sin(delta_v_ave[1])*delta_v_ave[0];
-
-		//积分计算里程计坐标系(odom_frame)下的机器人X,Y,Yaw轴坐标
-		output[0] += (int16_t)((cos((double)output[2]/1000)*delta_v_integral[0] - sin((double)output[2]/1000)*delta_v_integral[1])*1000);
-		output[1] += (int16_t)((sin((double)output[2]/1000)*delta_v_integral[0] + cos((double)output[2]/1000)*delta_v_integral[1])*1000);
-		output[2] += (int16_t)(delta_v_ave[1]*1000);
-		
-    //Yaw轴坐标变化范围控制-2Π -> 2Π
-		if(output[2] > PI*1000)
-			output[2] -= 2*PI*1000;
-		else if(output[2] < -PI*1000)
-			output[2] += 2*PI*1000;
-		
-		//发送机器人X轴Yaw轴速度反馈
-		output[3] = (int16_t)(delta_v_ave[0]*1000);
-		output[4] = 0;
-		output[5] = (int16_t)(delta_v_ave[1]*1000);
-}
-
 
 void my_forward(int16_t* input)
 {
@@ -134,26 +50,25 @@ void my_forward(int16_t* input)
 		{
 			break;
 		}
-		case forward:
+		case forward_back:
 		{
-			double len = LINE_FIX * (input[0]+input[1]+input[3])/3;
+			double len = LINE_FIX * (input[1]+input[3])/2;
 			position[0] += len*cos(position[2]);
+			position[1] += len*sin(position[2]);
+			break;
+		}
+		case left_right:
+		{
+			double len = LINE_FIX * (input[1]+input[3])/2;
+			position[0] += len*sin(position[2]);
 			position[1] += len*cos(position[2]);
 			break;
 		}
-		case back:
-		{
-			break;
-		}
-		case spin_rev:
+		case spin:
 		{
 			double ang = ANGLE_FIX * (input[0]-input[1]+input[3])/3;
 			position[2] += ang;
 			if(position[2] > 6.2832) {position[2] -= 6.2832;}
-			break;
-		}
-		case spin_clo:
-		{
 			break;
 		}
 		case arm:
@@ -161,6 +76,7 @@ void my_forward(int16_t* input)
 			break;
 		}
 	}
+
 	return;
 }
 
@@ -220,6 +136,46 @@ void Mecanum_Forward(int16_t* input, int16_t* output)
 	return;
 }
 
+void my_inverse(int16_t* input, int16_t* output)
+{
+	//update the state
+	u8 i;
+	if(robot_target_speed[0]==666 && robot_target_speed[1]==666 ) state = arm;
+	else if(robot_target_speed[0]==0 && robot_target_speed[1]==0 && robot_target_speed[2]==0) state = stop;//stop
+	else if(robot_target_speed[0]==0 && robot_target_speed[2]==0) state = forward_back;//forward
+	else if(robot_target_speed[1]==0 && robot_target_speed[2]==0) state = left_right;//
+	else if(robot_target_speed[0]==0 && robot_target_speed[1]==0) state = spin;//spin
+	_state = state;
+	
+	switch(state)
+	{
+		case stop:
+			for(i=0; i<4; i++) output[i] = 0;
+			break;
+		case forward_back:
+			for(i=0; i<4; i++) output[i] = input[1]/10;
+			break;
+		case left_right:
+			output[0]=-input[0]/10;
+			output[1]= input[0]/10;
+			output[2]=-input[0]/10;
+			output[3]= input[0]/10;
+			break;
+		case spin:
+			output[0]= input[2]/20;
+			output[1]=-input[2]/20;
+			output[2]=-input[2]/20;
+			output[3]= input[2]/20;
+			break;
+		case arm:
+			for(i=0; i<4; i++) output[i] = 0;
+			break;
+	}
+	
+	return;
+	
+}
+
 /**
 	
  */
@@ -240,8 +196,9 @@ void Mecanum_Inverse(int16_t* input, int16_t* output)
 	
 	//update the state
 	if(robot_target_speed[0]==0 && robot_target_speed[1]==0 && robot_target_speed[2]==0) state = stop;//stop
-	else if(robot_target_speed[1]==0 && robot_target_speed[2]==0) state = forward;//forward
-	else if(robot_target_speed[0]==0 && robot_target_speed[1]==0) state = spin_rev;//reverse clock
+	else if(robot_target_speed[0]==0 && robot_target_speed[2]==0) state = forward_back;//forward
+	else if(robot_target_speed[0]==0 && robot_target_speed[1]==0) state = spin;//reverse clock
+	_state = state;
 	
 	output[0] = (int16_t)(wheel_velocity[0] * ticks_per_meter/PID_RATE);
 	output[1] = (int16_t)(wheel_velocity[1] * ticks_per_meter/PID_RATE);

@@ -30,5 +30,6 @@ void AX_Kinematics_Inverse(int16_t* input, int16_t* output); //ДжЅв(InverseKinem
 void Mecanum_Forward(int16_t* input, int16_t* output);
 void Mecanum_Inverse(int16_t* input, int16_t* output);
 void my_forward(int16_t* input);
+void my_inverse(int16_t* input, int16_t* output);
 
 #endif

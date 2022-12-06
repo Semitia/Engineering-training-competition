@@ -12,7 +12,9 @@ int16_t AX_PID_MotorVelocityCtlC(int16_t spd_target, int16_t spd_current);   //P
 int16_t AX_PID_MotorVelocityCtlD(int16_t spd_target, int16_t spd_current);   //PID控制函数，电机D
 
 int16_t AX_PID_MotorVelocityCtlB_plus(int16_t spd_target, int16_t spd_current);
-
+int16_t AX_PID_MotorVelocityCtlA_plus(int16_t spd_target, int16_t spd_current);
+int16_t AX_PID_MotorVelocityCtlC_plus(int16_t spd_target, int16_t spd_current);
+int16_t AX_PID_MotorVelocityCtlD_plus(int16_t spd_target, int16_t spd_current);
 #endif
 
 
